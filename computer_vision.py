@@ -15,8 +15,8 @@ from keras.layers import Dense, GlobalAveragePooling2D, Dropout
 from keras.optimizers import SGD, Adam
 
 """
-Tool with the purpose of simplifying the handling of image data. 
-ImageSet instances allow for the use of a generator on a 
+Tool with the purpose of simplifying the handling of image data.
+ImageSet instances allow for the use of a generator on a
 Standard Image Collection (defined below).
 
 Standard Image Collection refers to the following structuring of image data:
@@ -35,28 +35,29 @@ Images/
 The images do not have to be of consistent size. There are expected to be two or
 more image categories.
 """
-# TODO:
-# - Add exception throwing (current method is to print ERROR and return)
-# - Consider adding method that checks whether or not directory is a Standard Image Collection
-# - Consider allowing two ImageSets to be verified to represent matching data (for example number of image classes)
 class ImageSet(object):
 
-    # TODO:
-    # - Make data path the first argument and all others optional
-    def __init__(self, aug_dict, batch_size, data_path, image_resize_dims):
+    def __init__(self, data_path, aug_dict=dict(), batch_size=64, image_resize_dims=(150, 150)):
         """
         Initialized with image data characteristics.
 
         Args:
+            data_path: Path to a Standard Image Collection
             aug_dict: Dictionary of image augmentations to be applied. Arguement
                 format should match Keras's ImageDataGenerator(...)
                 https://keras.io/preprocessing/image/
             batch_size: Number of images to be yielded by generator at each
                 training step
-            data_path: Path to a Standard Image Collection
             image_resize_dims: Dimensions that generator should resize all
                 images to
+        Raises:
+            AttributeError: If provided data_path does not refer to a
+                Standard Image Collection
         """
+
+        if not self.is_collection_valid(data_path):
+            raise AttributeError("Data path does not refer to a Standard Image Collection")
+
         self.batch_size = batch_size
         self.image_category_count, self.image_example_count = self.get_collection_info(data_path)
 
@@ -66,26 +67,64 @@ class ImageSet(object):
             category_mode = "binary"
         elif self.image_category_count > 2:
             category_mode = "categorical"
-        else:
-            print("ERROR: Invalid image category count")
-            return  # SHOULD NOT BE REACHABLE
 
         self.generator = datagen.flow_from_directory(data_path,
             target_size=image_resize_dims, batch_size=batch_size,
             class_mode=category_mode)
 
     @staticmethod
+    def is_collection_valid(collection_path):
+        """
+        Determines whether or not image set is a valid Standard Image Collection
+
+        Args:
+            collection_path: Path to collection in question
+        Return:
+            True only if Path refers to a Standard Image Collection
+        """
+
+        # Verify that path passed refers to a directory
+        if not os.path.isdir(collection_path):
+            return False
+
+        # Verify that path contains directories for more than two categories
+        if len(os.listdir(collection_path)) < 2:
+            return False
+
+        for category in os.listdir(collection_path):
+
+            category_path = os.path.join(collection_path, category)
+
+            # If non-folder found to exist in collection
+            if not os.path.isdir(category_path):
+                return False
+
+            # Verify that none of the items in the category_dir are themselves directories
+            for image_name in os.listdir(category_path):
+                image_path = os.path.join(category_path, image_name)
+                if os.path.isdir(image_path):
+                    return False
+
+        # Path must point to a Standard Image Collection
+        return True
+
+    @staticmethod
     def get_collection_info(collection_path):
         """
-        Provides info about a directory of images.
+        Provides info about a Standard Image Collection.
 
         Args:
             collection_path: Path to a Standard Image Collection
 
         Returns:
             Pair (c, e) where c is the number of image categories and e is the
-            total number of image examples.
+            total number of image examples. If given path is not a Standard
+            Image Collection, None will be returned
         """
+
+        if not ImageSet.is_collection_valid(collection_path):
+            return None
+
         image_category_count = 0
         image_example_count = 0
         for image_category in os.listdir(collection_path):
@@ -94,8 +133,6 @@ class ImageSet(object):
                 image_example_count += 1
         return image_category_count, image_example_count
 
-    # TODO:
-    # - Test on irregular folder structure
     @staticmethod
     def create_category_dir_shell(src, copy_dir_name):
         """
@@ -114,7 +151,6 @@ class ImageSet(object):
     # TODO:
     # - Consider allowing user to specifiy directory names (currently just split into "Training" and "Validation")
     # - Consider adding alternative partition schema (testing data? How could this be done?)
-    # - Test on irregular folder structure
     @staticmethod
     def partition_image_collection(image_collection_path, validation_example_count):
         """
@@ -141,8 +177,6 @@ class ImageSet(object):
             ImageSet.copy_dir(cat_folder_src, cat_folder_validation, small_content_subset)
             ImageSet.copy_dir(cat_folder_src, cat_folder_train, large_content_subset)
 
-    # TODO:
-    # - Test case where src or dst don't exist
     @staticmethod
     def copy_dir(src, dst, file_list):
         """
@@ -158,14 +192,14 @@ class ImageSet(object):
             shutil.copy(os.path.join(src, file_path), dst)
 
     # TODO:
-    # - Test with irregular lists and sizes
+    # - Consider error throwing on invalid arguments
     @staticmethod
     def partiton_list(the_list, smaller_list_size):
         """
         Randomly partitions list into two subsets.
 
         Args:
-            the_list: Generic list
+            the_list: Generic list. Has contents popped after method call.
             smaller_list_size: Number of list elements to be partitioned into
                 smaller list
         """
@@ -180,7 +214,7 @@ class ImageSet(object):
         return small_list, large_list
 
 """
-Tool allows a pre-trained Keras deep convolutional neural network to have a 
+Tool allows a pre-trained Keras deep convolutional neural network to have a
 new top layer trained on new data.
 
 Training is done in two phases. In the first phase, only the newly added top
@@ -190,10 +224,11 @@ this has been done, a round of fine-tuning can be done on the network. This
 involves an additional set of training passes on a much deeper subset of the
 network's layers. A slow learning rate is suggested for the latter process.
 """
+
 # TODO:
+# - Test
 # - Add ability to validate model on image set directly
 # - Add ability to predict labels on testing data
-# - Add exception throwing (current method is to print ERROR and return)
 # - Consider adding ensembling method
 # - Consider allowing trained models to be saved and recovered
 # - Consider allowing directory of un-labeled images to have its category guessed
@@ -229,11 +264,8 @@ class TransferModel(object):
         """
         if (train_set.image_category_count == 2):
             loss = "binary_crossentropy"
-        elif (train_set.image_category_count > 2):
-            loss = "categorical_crossentropy"
         else:
-            print("ERROR: Invalid image category count")
-            return  # SHOULD NOT BE REACHABLE
+            loss = "categorical_crossentropy"
 
         model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
 
@@ -252,35 +284,32 @@ class TransferModel(object):
     @staticmethod
     def stack_models(base_model, image_category_count, top_model_guide):
         """
-        Stacks a set of Dense layers on top of a model. Largely inspired by
-        https://keras.io/applications/
+        Stacks a set of Dense layers on top of a model. ReLu activation function 
+        used for all but output layer. Largely inspired by https://keras.io/applications/
 
         Args:
             base_model: Keras pre-trained and un-compiled model with its top
                 layers chopped off
-            image_category_count: Number of mage categories
+            image_category_count: Number of image categories
             top_model_guide: List of tuples (wi, di) where each dense layer i
                 has its width (wi) and dropout (di) specified.
+        Raises:
+            AttributeError: If image classes are less than 2
         """
         x = base_model.output
         x = GlobalAveragePooling2D()(x)
         for layer_tup in top_model_guide:
             layer_size, dropout = layer_tup
             x = Dense(layer_size, activation="relu")(x)
-            x = Dropout(dropout)(x)
         if image_category_count == 2:
             predictions = Dense(1, activation="sigmoid")(x)
         elif image_category_count > 2:
             predictions = Dense(image_category_count, activation="softmax")(x)
         else:
-            print("ERROR: Invalid image category count")
-            return # SHOULD NOT BE REACHABLE
+            raise AttributeError("Invalid image category count")
 
         return Model(inputs=base_model.input, outputs=predictions)
 
-    # TODO:
-    # - Allow user to specify that all layers are to be unfrozen for fine-tuning
-    # - Test on irregular data
     def fit(self, train_set, epochs, optimizers, val_set=None, top_layers_to_unfreeze=-1):
         """
         Fits model to image data passed. Model is first fit with the all layers
