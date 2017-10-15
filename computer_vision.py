@@ -231,7 +231,6 @@ network's layers. A slow learning rate is suggested for the latter process.
 # - Add ability to predict labels on testing data
 # - Consider adding ensembling method
 # - Consider allowing trained models to be saved and recovered
-# - Consider allowing directory of un-labeled images to have its category guessed
 # - Consider allowing a grid search to be performed with hyperparameters
 class TransferModel(object):
 
